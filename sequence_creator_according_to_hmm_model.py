@@ -19,7 +19,7 @@ def sequence_deciders(A_gt, B_gt, pi_gt, K, L):
     sequence_decider_B = {}
     for k in range(K):
         sequence_decider_B[k] = []
-        for l in range(L):
+        for l in range(L-1):
             try:
                 sequence_decider_B[k].append(B_gt[k, l] + sequence_decider_B[k][-1]) 
             except:
@@ -36,8 +36,6 @@ def sequence_deciders(A_gt, B_gt, pi_gt, K, L):
 def create_sequences(A_gt, B_gt, pi_gt, K, T, N, L):
     'This function creates seqeunces according to the markov process defined above.'
     A_decider, B_decider, pi_decider = sequence_deciders(A_gt, B_gt, pi_gt, K, L)
-    print('A_decider:', A_decider)
-    print('B_decider:', B_decider)
     states_list = []
     observations_list = []
 
@@ -131,8 +129,6 @@ def hmmgenerate(K, L, T, N, S=0, D=0, edhmm = False):
     teoretical_states, teoretical_observations = create_sequences(A_gt, B_gt, pi_gt, K, T, N, L)
     teoretical_observations = np.array(teoretical_observations)
     return A_gt, B_gt, pi_gt, teoretical_observations, teoretical_states
-
-
 
 if __name__ == '__main__':
     A_gt, B_gt, pi_gt, teoretical_observations, teoretical_states = hmmgenerate(8, 16, 100, 4096, S=0, D=0, edhmm = False)
