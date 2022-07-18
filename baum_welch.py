@@ -7,9 +7,9 @@ def forward(A, B, pi, O):
     T = len(O)             # Number of sequences
     N = A.shape[0]         # Number of states
     
-    alpha_2dots = np.zeros((N, T)).astype(np.longdouble)
-    alpha_hat = np.zeros_like(alpha_2dots).astype(np.longdouble)
-    c = np.zeros(T).astype(np.longdouble)
+    alpha_2dots = np.zeros((N, T))
+    alpha_hat = np.zeros_like(alpha_2dots)
+    c = np.zeros(T)
     
     alpha_2dots[:,0] =  pi[:,0]*B[:, O[0]]
     c[0] = 1/(np.sum(alpha_2dots[:,0])) 
