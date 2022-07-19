@@ -1,4 +1,12 @@
-"""This one uses the 'correct' update rule for B."""
+"""
+This file is written by Emil Emir Vardar.
+The goal of the file is to estimate the transmission (A), emission (B) and
+initial (pi) matrices using Baum Welch algortihm. However, observe that this code 
+can only be used when we know that the markov model is explicit duration markov
+model. It assumes that the initial A, B and pi matrices are from an EDHMM and
+updates them accordingly. 
+"""
+
 
 import numpy as np
 from numba import njit
@@ -126,7 +134,7 @@ def bw_edhmm(A, B, pi, O, D):
     return A, B, pi, likelihood_of_sequence
 
 
-def fit_edhmm(A, B, pi, O, D, K, L, TOL = 1e-6, NUM_ITER = 5000, printer=True, print_modulo=100):
+def fit_edhmm(A, B, pi, O, D, K, L, TOL = 1e-6, NUM_ITER = 1000):
     delta = 10
     likelihood_list = []
     iter = 0
@@ -139,8 +147,5 @@ def fit_edhmm(A, B, pi, O, D, K, L, TOL = 1e-6, NUM_ITER = 5000, printer=True, p
             pass
         iter += 1
     return A, B, pi, likelihood_list, iter, delta
-
-
-
 
 
