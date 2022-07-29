@@ -14,7 +14,7 @@ The reference [1] refered many times below is:
 
 import numpy as np
 from numba import njit
-from create_sequence import *
+from sequence_creator_according_to_hmm_model import *
 import matplotlib.pyplot as plt 
 
 @njit
