@@ -1,6 +1,5 @@
 """
-This code is written by Emil Vardar, and it is open-source. Use it on your own risk.
-To see how to use/call it please check the 'call_bw.ipynb' file. 
+This code is written by Emil Vardar, and it is open-source. Use it on your own risk
 
 This code is implements the forward-backward and the Baum-Welch algorithms
 based on the normalized alpha and beta parameters in order to counter act
@@ -87,7 +86,7 @@ def backward(A, B, O, c):
     return beta_hat
 
 @njit
-def calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num_A, gamma, l):
+def calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num_A, gamma, l, hold_A, hold_pi):
     """
     Calculates first summation (from t=1 to T-1) of the numerator for the update of transition matrix
     A given in equation 24 in [1]. It also calculates the gamma for updating the initial distribution
@@ -105,15 +104,17 @@ def calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num
     num_A: Array holding the calculated numerator values for A
     gamma: Update variable for the initial distributions
     l: the number of the training sequence
+    hold_x: Booleans denoting if A and pi should be updated or not respectively
     """
     for i in range(N):
-        for j in range(N):
-            num_sum = 0
-            for t in range(T-1):
-                num_sum += alpha_hat_l[i, t] * A[i,j] * B[j, observation_l[t+1]] * beta_hat_l[j, t+1]
-            num_A[l, i, j] = num_sum
-    
-        gamma[l, i] = alpha_hat_l[i, 0] * beta_hat_l[i, 0] / c_l[0]
+        if not hold_A:
+            for j in range(N):
+                num_sum = 0
+                for t in range(T-1):
+                    num_sum += alpha_hat_l[i, t] * A[i,j] * B[j, observation_l[t+1]] * beta_hat_l[j, t+1]
+                num_A[l, i, j] = num_sum
+        if not hold_pi:
+            gamma[l, i] = alpha_hat_l[i, 0] * beta_hat_l[i, 0] / c_l[0]
 
 @njit
 def calculate_num_denom_B(K, N, T, observation_l, alpha_hat_l, beta_hat_l, c_l, num_B, denom_B, l):
@@ -189,9 +190,11 @@ def bw(A, B, pi, O, hold_A, hold_B, hold_pi):
 
         likelihood_of_sequence_holder[l], alpha_hat_l, c_l = forward(A, B, pi, observation_l)
         beta_hat_l = backward(A, B, observation_l, c_l)      
-        calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num_A, gamma, l)   
-        calculate_num_denom_B(K, N, T, observation_l, alpha_hat_l, beta_hat_l, c_l, num_B, denom_B, l)
-        calculate_denom_A(N, T, alpha_hat_l, beta_hat_l, c_l, l, denom_A)
+        calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num_A, gamma, l, hold_A, hold_pi) 
+        if not hold_B:  
+            calculate_num_denom_B(K, N, T, observation_l, alpha_hat_l, beta_hat_l, c_l, num_B, denom_B, l)
+        if not hold_A:
+            calculate_denom_A(N, T, alpha_hat_l, beta_hat_l, c_l, l, denom_A)
 
     # After going through all the training examples, we can now update A, B and pi 
     # matrices according to equation 24 given in [1].
