@@ -7,9 +7,8 @@ where the labels for the states are 'incomplete'.
 It is open source. Use at your own risk.
 
 The reference [1] refered many times below is:
-[1]: Riis, Søren. Hidden Markov models and neural 
-     networks for speech recognition. Technical University of 
-     Denmark [Department of Mathematical Modeling], 1998.
+[1]: Riis, Søren. Hidden Markov models and neural networks for speech recognition. Technical 
+     University of Denmark [Department of Mathematical Modeling], 1998.
 """
 
 import numpy as np
@@ -17,7 +16,9 @@ from numba import njit
 
 @njit
 def create_zeros(N, L, S):
-    """Defines zero-matrices to be used in the forward-backward algorithm."""
+    """
+    Defines zero-matrices to be used in the forward-backward algorithm.
+    """
     alpha = np.zeros((N, L, S+1))
     alpha_p = np.zeros_like(alpha)
     alpha_m = np.zeros_like(alpha)
@@ -33,7 +34,9 @@ def create_zeros(N, L, S):
 
 @njit
 def normalizer(c, alpha, alpha_norm, l, s):
-    """Normalize alpha in axis=0 direction and save the 1 over the summation in the c matrix."""
+    """
+    Normalize alpha in axis=0 direction and save the 1 over the summation in c matrix.
+    """
     if np.sum(alpha[:,l,s]) != 0:
         c[l,s] = 1/np.sum(alpha[:,l,s])
         alpha_norm[:,l,s] = alpha[:,l,s] * c[l,s]
@@ -41,12 +44,15 @@ def normalizer(c, alpha, alpha_norm, l, s):
 
 @njit
 def forward_initialization(B, P, pi, N, observations, labels, alpha, alpha_m, alpha_p, alpha_norm, alpha_m_norm, alpha_p_norm, c, c_m, c_p):
-    """This function does the normalized version of the initialization step in Algorithm B.3 given in [1]."""
+    """
+    This function does the normalized version of the initialization step given in Algorithm B.3 in [1].
+    """
     for j in range(N):
         joint = B[j, observations[0]] * pi[j, 0]
         alpha_m[j, 0, 0] = joint * P[j, N]
         alpha_p[j, 0, 1] = joint * P[j, labels[0]] 
-    alpha = alpha_p + alpha_m
+    alpha[:, 0, 0] = alpha_m[:, 0, 0]
+    alpha[:, 0, 1] = alpha_p[:, 0, 1]
 
     c, alpha_norm = normalizer(c, alpha, alpha_norm, 0, 0)
     c_m, alpha_m_norm = normalizer(c_m, alpha_m, alpha_m_norm, 0, 0)
@@ -56,7 +62,9 @@ def forward_initialization(B, P, pi, N, observations, labels, alpha, alpha_m, al
 
 @njit
 def forward_recursion(L, S, N, A, B, P, observations, labels, alpha, alpha_p, alpha_m, c, c_p, c_m, alpha_norm, alpha_p_norm, alpha_m_norm):
-    """This function does the normalized version of the recursion step in given in Algorithm B.3 given in [1]."""
+    """
+    This function does the normalized version of the recursion step in given in Algorithm B.3 in [1].
+    """
     for l in range(1, L):
         for s in range(S+1):
             for j in range(N):
@@ -82,14 +90,14 @@ def incomplete_label_forward(A, B, P, pi, observations, labels):
     This function implements the forward algorithm given in Algorithm B.3 
     in [1] (however this is a normalized version of that, for numerical 
     reasons). This forward algorithm is for the special case where we 
-    have incomplete labels (S<L, where S is the number of labels and L 
+    have incomplete labels (S<=L, where S is the number of labels and L 
     is the number of observaiton values). 
     """
     L = len(observations)    # Number of observations
-    S = len(labels)          # Number of labels (S<L) 
+    S = len(labels)          # Number of labels (S<=L) 
     N = A.shape[0]           # Number of states 
 
-    # Create zero-matrices to be used later
+    # Create zero-matrices
     alpha, alpha_p, alpha_m, alpha_norm, alpha_p_norm, alpha_m_norm, c, c_p, c_m = create_zeros(N, L, S)
     
     # Initialization step of Alg B.3 in [1]
@@ -99,11 +107,15 @@ def incomplete_label_forward(A, B, P, pi, observations, labels):
     # Recursion step of Alg B.3 in [1]
     alpha_norm, alpha_p_norm, alpha_m_norm, c, c_p, c_m = forward_recursion(
         L, S, N, A, B, P, observations, labels, alpha, alpha_p, alpha_m, c, c_p, c_m, alpha_norm, alpha_p_norm, alpha_m_norm)
+    
+    # Return the updated values 
     return alpha_norm, alpha_p_norm, alpha_m_norm, c, c_p, c_m
 
 @njit
 def backward_recursion(L, S, N, beta_norm, beta, c, A, B, P,labels, observations):
-    """This function does the normalized version of the recursion step in given in Algorithm B.4 given in [1]."""
+    """
+    This function does the normalized version of the recursion step given in Algorithm B.4 in [1].
+    """
     for l in range(L-2, -1, -1):
         for s in range(S, -1, -1):
             for i in range(N):
@@ -122,17 +134,17 @@ def incomplete_label_backward(A, B, P, observations, labels, c):
     """
     This function implements the backward algorithm given in Algorithm B.4 in [1] but
     with a slight normalization change to prevent numerical issues. 
-    This backward algorithm is for the special case where we have incomplete labels (S<L, where S is the
-    number of labels and L is the number of observaiton values).
+    This backward algorithm is for the special case where we have incomplete labels (S<=L, 
+    where S is the number of labels and L is the number of observaitons).
     """
     L = len(observations)    # Number of observations
-    S = len(labels)          # Number of labels S<L. 
+    S = len(labels)          # Number of labels S<=L. 
     N = A.shape[0]           # Number of states
 
     beta = np.zeros((N, L, S+1))
     beta_norm = np.zeros_like(beta)
 
-    # Initializaiton step
+    # Initializaiton step given in algorithm B.4 in [1]
     beta[:, L-1, S] = 1
     beta_norm[:, L-1, S] = beta[:, L-1, S] * c[L-1, S]
     
@@ -143,33 +155,37 @@ def incomplete_label_backward(A, B, P, observations, labels, c):
 @njit
 def calculate_m_il(alpha, alpha_p, alpha_m, beta, c_p, c_m):
     """
-    Calculates the m_i^+(l, s) and m_i^-(l, s) according to equation B.21 and B.22
+    Calculates the m_i+(l, s) and m_i-(l, s) according to equation B.21 and B.22
     in [1]. Furthermore, calculates the m_i(l) by summing these two according to
-    equation B.23.
+    equation B.23. Observe the differences is caused by using normalized alpha and beta:s
     """    
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
-    S = alpha.shape[2]-1  # Number of labels S<L. 
+    S = alpha.shape[2]-1  # Number of labels S<=L. 
     
     m_ils_p = np.zeros_like(alpha)    # The positive part of m_i(l, s) --> m_i+(l,s)
     m_ils_m = np.zeros_like(alpha)    # The negative part of m_i(l, s) --> m_i-(l,s)
     for i in range(N):
         for l in range(L):
             for s in range(S+1):
-                if c_p[l,s] !=0:
+                if c_p[l,s] != 0:
                     m_ils_p[i, l, s] = alpha_p[i, l, s] * beta[i, l, s] / c_p[l,s] 
                 if c_m[l,s] != 0:
                     m_ils_m[i, l, s] = alpha_m[i, l, s] * beta[i, l, s] / c_m[l,s]   
-    # Sum m_i^+(l, s) and m_i^-(l, s) 
+    
+    # Sum m_i+(l, s) and m_i-(l, s) 
     m_il = np.sum((m_ils_p + m_ils_m), axis=2)
     return m_il, m_ils_p, m_ils_m
 
 @njit
 def calculate_m_ijl(A, B, P, observations, labels, alpha, beta):
-    """Calculates m_ij(l) according to equation B.24 in [1]."""    
+    """
+    Calculates m_ij(l) according to equation B.24 in [1]. The differences in the code and 
+    equation B.24 are mainly caused by that the code uses normalized alpha and beta parameters. 
+    """    
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
-    S = alpha.shape[2]-1  # Number of labels S<L. 
+    S = alpha.shape[2]-1  # Number of labels S<=L. 
     m_ijl = np.zeros((N, N, L))
 
     # Then calculate the numerator and divide with correct denominator calcualted above
@@ -187,8 +203,10 @@ def calculate_m_ijl(A, B, P, observations, labels, alpha, beta):
 
 @njit
 def calculate_m_ic(m_ils_p, m_ils_m, labels):
-    """Calculates m_i(c) according to equation B.26 in [1]. m_i(c) is used to
-    update the label matrix P."""
+    """
+    Calculates m_i(c) according to equation B.26 in [1]. m_i(c) is used to
+    update the label matrix P.
+    """
     N = m_ils_p.shape[0]    # Number of states
     L = m_ils_p.shape[1]    # Number of observations
     S = m_ils_p.shape[2]-1  # Number of labels S<L. 
@@ -200,7 +218,7 @@ def calculate_m_ic(m_ils_p, m_ils_m, labels):
             if c < N:
                 for l in range(L):
                     for s in range(S+1):
-                        if s> 0 and c == labels[s-1]:
+                        if s > 0 and c == labels[s-1]:
                             temp += m_ils_p[i, l, s]
                 m_ic[i, c] = temp
             else:
@@ -212,6 +230,9 @@ def calculate_m_ic(m_ils_p, m_ils_m, labels):
 
 @njit
 def calculate_m_ia(m_il, B, observations):
+    """
+    Calculates m_i(a) from m_i(l) according to equation B.7 in [1]. 
+    """
     m_ia = np.zeros_like(B)
     for i in range(B.shape[0]):
         for a in range(B.shape[1]):
@@ -222,13 +243,16 @@ def calculate_m_ia(m_il, B, observations):
             m_ia[i, a] = temp 
     return m_ia
 
-
-def update_matrices(A, B, P, pi, observations, labels, update_A, update_B, update_P):
+def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P):
+    """
+    Goes through the training set onces and updates A, B, and P matrices according to the
+    training set. 
+    """
     m_ij = np.zeros_like(A)
     m_ia = np.zeros_like(B)
     m_ic = np.zeros_like(P)
     for r in range(len(observations)):
-        # Calculate the necessary alpha and beta matrices
+        # Calculate the necessary forward and backward variables
         alpha, alpha_p, alpha_m, c, c_p, c_m = incomplete_label_forward(A, B, P, pi, observations[r], np.array(labels[r]))
         beta = incomplete_label_backward(A, B, P, observations[r], np.array(labels[r]), c)
 
@@ -260,6 +284,11 @@ def update_matrices(A, B, P, pi, observations, labels, update_A, update_B, updat
     return A, B, P
 
 def fit(A, B, P, pi, observations, labels, max_epoch, update_A=True, update_B=True, update_P=True):
+    """
+    Goes through the training set max_epoch times and updates the A, B, and P matrices. Retruns the 
+    updated matrices. 
+    """
     for epoch in range(max_epoch):
-        A, B, P = update_matrices(A, B, P, pi, observations, labels, update_A, update_B, update_P)                                                                      
+        A, B, P = update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P)                                                                      
     return A, B, P
+
