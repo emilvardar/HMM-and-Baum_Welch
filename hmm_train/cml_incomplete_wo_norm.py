@@ -44,8 +44,8 @@ def forward_recursion(L, S, N, A, B, P, observations, labels, alpha, alpha_p, al
     """
     This function does the recursion step given in Algorithm B.3 in [1].
     """
-    for s in range(S+1):
-        for l in range(1, L):
+    for l in range(1, L):
+        for s in range(S+1):
             for j in range(N):
                 temp_p = 0
                 temp_m = 0
@@ -59,32 +59,6 @@ def forward_recursion(L, S, N, A, B, P, observations, labels, alpha, alpha_p, al
                 alpha_m[j, l, s] = b_jl * P[j, N] * temp_m 
                 alpha[j, l, s] = alpha_p[j, l, s] + alpha_m[j, l, s]
     return alpha, alpha_p, alpha_m
-
-@njit
-def calc_ln_P(A, B, pi, O):
-    'Unnecessary function to calculate ln_P but for now lets just use this one to calculate ln_P'
-    T = len(O)             # Number of sequences
-    N = A.shape[0]         # Number of states
-    
-    alpha_2dots = np.zeros((N, T))
-    alpha_hat = np.zeros_like(alpha_2dots)
-    c = np.zeros(T)
-    
-    alpha_2dots[:,0] =  pi[:,0]*B[:, O[0]]
-    c[0] = 1/(np.sum(alpha_2dots[:,0])) 
-    alpha_hat[:,0] = c[0]*alpha_2dots[:,0]
-    
-    for t in range(1, T):
-        for i in range(N):
-            temp = 0
-            for j in range(N):
-                temp += alpha_hat[j, t-1] * A[j, i]
-            alpha_2dots[i, t] = temp * B[i, O[t]]
-        c[t] = 1/(np.sum(alpha_2dots[:,t]))
-        alpha_hat[:, t] = alpha_2dots[:,t]*c[t]
-
-    ln_P = np.sum(-np.log(c))
-    return ln_P
 
 @njit
 def incomplete_label_forward(A, B, P, pi, observations, labels):
@@ -106,12 +80,12 @@ def incomplete_label_forward(A, B, P, pi, observations, labels):
 
     # Recursion step of Alg B.3 in [1]
     alpha, alpha_p, alpha_m = forward_recursion(L, S, N, A, B, P, observations, labels, alpha, alpha_p, alpha_m)
-    
+
     # Return the updated values 
     return alpha, alpha_p, alpha_m
 
 @njit
-def backward_recursion(L, S, N, beta, A, B, P,labels, observations):
+def backward_recursion(L, S, N, beta, A, B, P, labels, observations):
     """
     This function does the recursion step given in Algorithm B.4 in [1].
     """
@@ -144,16 +118,16 @@ def incomplete_label_backward(A, B, P, observations, labels):
     beta[:, L-1, S] = 1
     
     # Recursion step
-    beta = backward_recursion(L, S, N, beta, A, B, P,labels, observations)
+    beta = backward_recursion(L, S, N, beta, A, B, P, labels, observations)
     return beta
 
 @njit
-def calculate_m_il(alpha, alpha_p, alpha_m, beta):
+def calculate_m_il(alpha_norm, alpha, alpha_p, alpha_m, beta):
     """
     Calculates the m_i+(l, s) and m_i-(l, s) according to equation B.21 and B.22
     in [1]. Furthermore, calculates the m_i(l) by summing these two according to
     equation B.23.
-    """    
+    """      
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
     S = alpha.shape[2]-1  # Number of labels S<=L. 
@@ -161,7 +135,7 @@ def calculate_m_il(alpha, alpha_p, alpha_m, beta):
     m_ils_p = np.zeros_like(alpha)    # The positive part of m_i(l, s) --> m_i+(l,s)
     m_ils_m = np.zeros_like(alpha)    # The negative part of m_i(l, s) --> m_i-(l,s)
     
-    denom = np.sum(np.sum(alpha*beta, axis=2), axis=0)
+    denom = np.sum(np.sum(alpha_norm*beta, axis=2), axis=0)
     for i in range(N):
         for l in range(L):
             for s in range(S+1):
@@ -170,19 +144,27 @@ def calculate_m_il(alpha, alpha_p, alpha_m, beta):
 
     # Sum m_i+(l, s) and m_i-(l, s) 
     m_il = np.sum((m_ils_p + m_ils_m), axis=2)
-    return m_il, m_ils_p, m_ils_m
+
+    gamma = np.zeros(N)
+    for i in range(N):
+        temp = 0
+        for s in range(S+1):
+            temp += alpha[i,0,s] * beta[i,0,s] / denom[0]
+        gamma[i] = temp
+
+    return m_il, m_ils_p, m_ils_m, gamma
 
 @njit
 def calculate_m_ijl(A, B, P, observations, labels, alpha, beta):
     """
     Calculates m_ij(l) according to equation B.24 in [1].
-    """    
+    """  
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
     S = alpha.shape[2]-1  # Number of labels S<=L. 
-    denom = np.sum(np.sum(alpha*beta, axis=2), axis=0)
 
     m_ijl = np.zeros((N, N, L-1))
+    denom = np.sum(np.sum(alpha*beta, axis=2), axis=0)
 
     # Then calculate the numerator and divide with correct denominator calcualted above
     for i in range(N):
@@ -193,8 +175,8 @@ def calculate_m_ijl(A, B, P, observations, labels, alpha, beta):
                 for s in range(S+1):
                     if s != 0:
                         temp_p += alpha[i, l-1, s-1] * B[j, observations[l]] * P[j, labels[s-1]] * A[i, j] * beta[j, l, s]
-                    temp_m += alpha[i, l-1, s] * B[j, observations[l]] * P[j, -1] * A[i, j] * beta[j, l, s]
-                m_ijl[i, j, l-1] = (temp_p + temp_m)/denom[l]
+                    temp_m += alpha[i, l-1, s] * B[j, observations[l]] * P[j, -1] * A[i, j] * beta[j, l, s] 
+                m_ijl[i, j, l-1] = (temp_p + temp_m) / (denom[l])
     return m_ijl
 
 @njit
@@ -239,7 +221,7 @@ def calculate_m_ia(m_il, B, observations):
             m_ia[i, a] = temp 
     return m_ia
 
-def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P):
+def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P, update_pi):
     """
     Goes through the training set onces and updates A, B, and P matrices according to the
     training set. 
@@ -247,32 +229,34 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
     m_ij = np.zeros_like(A)
     m_ia = np.zeros_like(B)
     m_ic = np.zeros_like(P)
+    gamma_total = np.zeros(A.shape[0])
     
     ln_P_list = []
     for r in range(len(observations)):
-        # Calculate the log prob
-        ln_P_list.append(calc_ln_P(A, B, pi, observations[r]))
-        
         # Calculate the necessary forward and backward variables
         alpha, alpha_p, alpha_m = incomplete_label_forward(A, B, P, pi, observations[r], np.array(labels[r]))
         beta = incomplete_label_backward(A, B, P, observations[r], np.array(labels[r]))
-
+        ln_P_list.append(np.log(np.sum(alpha[:,7,:] * beta[:,7,:])))
+        
         if update_A:
             # Calculate m_ij(l)
             m_ijl_r = calculate_m_ijl(A, B, P, observations[r], np.array(labels[r]), alpha, beta)
             m_ij_r = np.sum(m_ijl_r, axis=2)
             m_ij += m_ij_r
 
-        if update_B or update_P:
+        if update_B or update_P or update_pi:
             # Calculate m_i(l)
-            m_il_r, m_ils_p_r, m_ils_m_r = calculate_m_il(alpha, alpha_p, alpha_m, beta)
+            m_il_r, m_ils_p_r, m_ils_m_r, gamma = calculate_m_il(alpha, alpha, alpha_p, alpha_m, beta)
             if update_B:
                 m_ia += calculate_m_ia(m_il_r, B, observations[r])
 
             if update_P:
                 # Calculate m_i(c)
                 m_ic += calculate_m_ic(m_ils_p_r, m_ils_m_r, np.array(labels[r]))
-
+            
+            if update_pi:
+                gamma_total += gamma
+    
     if update_A:
         #Update A according to equation B.8 given in [1]
         A = m_ij/(np.sum(m_ij, axis=1)).reshape(A.shape[0], 1)
@@ -282,16 +266,19 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
     if update_P:
         # Update P according to equation B.9 given in [1]
         P = m_ic/(np.sum(m_ic, axis=1).reshape(P.shape[0], 1))
-    return A, B, P, np.sum(ln_P_list)/len(ln_P_list)
+    if update_pi:
+            # Update pi
+        pi = gamma_total/(np.sum(gamma_total))
+        pi = pi.reshape((len(pi), 1))
+    return A, B, P, pi, np.sum(ln_P_list)/len(ln_P_list)
 
-def fit(A, B, P, pi, observations, labels, max_epoch, update_A=True, update_B=True, update_P=True):
+def fit(A, B, P, pi, observations, labels, max_epoch, update_A=True, update_B=True, update_P=True, update_pi=True):
     """
     Goes through the training set max_epoch times and updates the A, B, and P matrices. Retruns the 
     updated matrices. 
     """
     ln_P_list = []
     for epoch in range(max_epoch):
-        A, B, P, ln_P = update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P)    
+        A, B, P, pi, ln_P = update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P, update_pi)                                                    
         ln_P_list.append(ln_P)
-        print(epoch)                                                   
-    return A, B, P, ln_P_list
+    return A, B, P, pi, ln_P_list
