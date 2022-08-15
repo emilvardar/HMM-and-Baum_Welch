@@ -148,11 +148,10 @@ def calculate_num_denom_B(K, N, T, observation_l, alpha_hat_l, beta_hat_l, c_l, 
 @njit
 def calculate_denom_A(N, T, alpha_hat_l, beta_hat_l, c_l, l, denom_A):
     for i in range(N):
-        for t in range(T):
-            denominator = 0
-            for t in range(T-1):
-                denominator += (alpha_hat_l[i, t] * beta_hat_l[i, t]) / c_l[t] 
-            denom_A[l, i] = denominator
+        denominator = 0
+        for t in range(T-1):
+            denominator += (alpha_hat_l[i, t] * beta_hat_l[i, t]) / c_l[t] 
+        denom_A[l, i] = denominator
 
 @njit
 def bw(A, B, pi, O, hold_A, hold_B, hold_pi):
@@ -177,7 +176,7 @@ def bw(A, B, pi, O, hold_A, hold_B, hold_pi):
     K = B.shape[1]             # Num of possible outcomes 
     num_sequence = O.shape[0]  # Num of training sequences
     likelihood_of_sequence_holder = np.zeros(num_sequence)
-
+ 
     num_A = np.zeros((num_sequence, N, N))
     denom_A = np.zeros((num_sequence, N))
     num_B = np.zeros((num_sequence, N, K))
@@ -189,7 +188,8 @@ def bw(A, B, pi, O, hold_A, hold_B, hold_pi):
         T = len(observation_l)
 
         likelihood_of_sequence_holder[l], alpha_hat_l, c_l = forward(A, B, pi, observation_l)
-        beta_hat_l = backward(A, B, observation_l, c_l)      
+        beta_hat_l = backward(A, B, observation_l, c_l)  
+        
         calculate_num_A(N, T, alpha_hat_l, beta_hat_l, c_l, A, B, observation_l, num_A, gamma, l, hold_A, hold_pi) 
         if not hold_B:  
             calculate_num_denom_B(K, N, T, observation_l, alpha_hat_l, beta_hat_l, c_l, num_B, denom_B, l)
@@ -214,7 +214,7 @@ def bw(A, B, pi, O, hold_A, hold_B, hold_pi):
         pi = pi.reshape((len(pi), 1))
 
     # The mean value of the likelihood of the observed sequence
-    likelihood_of_sequence = np.sum(likelihood_of_sequence_holder)/num_sequence    
+    likelihood_of_sequence = np.sum(likelihood_of_sequence_holder)/num_sequence 
     return A, B, pi, likelihood_of_sequence
 
 
@@ -245,3 +245,4 @@ def fit(A, B, O, N, TOL = 1e-3, NUM_ITER = 100, pi = 0, hold_A=False, hold_B=Fal
             pass
         iter += 1
     return A, B, pi, likelihood_list, iter, delta
+
