@@ -62,7 +62,7 @@ def forward_recursion(L, S, N, A, B, P, observations, labels, alpha, alpha_m, al
                         temp_p += A[i, j] * alpha_norm[i, l-1, s-1]
                     temp_m += A[i,j] * alpha_norm[i, l-1, s]
                 b_jl = B[j, observations[l]]
-                alpha_p[j, l, s] = b_jl * P[j, labels[s-1]] * temp_p   
+                alpha_p[j, l, s] = b_jl * P[j, labels[s-1]] * temp_p
                 alpha_m[j, l, s] = b_jl * P[j, N] * temp_m 
                 alpha[j, l, s] = alpha_p[j, l, s] + alpha_m[j, l, s]
         c[l] = 1/np.sum(alpha[:,l,:])
@@ -171,18 +171,14 @@ def calculate_m_il(alpha, alpha_p, alpha_m, beta):
     return m_il, m_ils_p, m_ils_m, gamma
 
 @njit
-def calculate_m_ijl(A, B, P, observations, labels, alpha, beta, c):
-    """
-    Calculates m_ij(l) according to equation B.24 in [1].
-    """  
+def calculate_m_ij(A, B, P, observations, labels, alpha, beta, c):
+    """Calculates m_ij."""  
+
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
     S = alpha.shape[2]-1  # Number of labels S<=L. 
 
-    m_ijl = np.zeros((N, N, L-1))
-    denom = np.sum(np.sum(alpha*beta, axis=2), axis=0)
-
-    # Then calculate the numerator and divide with correct denominator calcualted above
+    numerator = np.zeros((N, N, L-1))
     for i in range(N):
         for j in range(N):
             for l in range(1, L):
@@ -190,10 +186,27 @@ def calculate_m_ijl(A, B, P, observations, labels, alpha, beta, c):
                 temp_m = 0
                 for s in range(S+1):
                     if s != 0:
-                        temp_p += alpha[i, l-1, s-1] * B[j, observations[l]] * P[j, labels[s-1]] * A[i, j] * beta[j, l, s] * c[l] / (denom[l] * c[l-1])
-                    temp_m += alpha[i, l-1, s] * B[j, observations[l]] * P[j, -1] * A[i, j] * beta[j, l, s] *c[l] / (denom[l] * c[l-1])
-                m_ijl[i, j, l-1] = (temp_p + temp_m)
-    return m_ijl
+                        temp_p += alpha[i, l-1, s-1] * B[j, observations[l]] * P[j, labels[s-1]] * A[i, j] * beta[j, l, s] 
+                    temp_m += alpha[i, l-1, s] * B[j, observations[l]] * P[j, -1] * A[i, j] * beta[j, l, s]
+                numerator[i, j, l-1] = (temp_p + temp_m)
+    
+    denom = np.zeros(L-1)
+    for l in range(L-1):
+        temp = 0
+        for i in range(N):
+            for s in range(S+1):
+                temp += alpha[i,l,s] * beta[i,l,s]
+        denom[l] = temp / c[l]
+    
+    m_ij = np.zeros((N, N))
+    for i in range(N):
+        for j in range(N):
+            temp=0
+            for l in range(L-1):
+                temp += numerator[i, j, l] / denom[l]
+            m_ij[i,j] = temp
+    return m_ij
+
 
 @njit
 def calculate_m_ic(m_ils_p, m_ils_m, labels):
@@ -251,15 +264,14 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
     for r in range(len(observations)):
         # Calculate the necessary forward and backward variables
         alpha, alpha_p, alpha_m, c = incomplete_label_forward(A, B, P, pi, observations[r], np.array(labels[r]))
-        ln_P.append(np.sum(np.log(c)))
+        ln_P.append(-np.sum(np.log(c)))
         beta = incomplete_label_backward(A, B, P, observations[r], np.array(labels[r]), c)
         
         if update_A:
             # Calculate m_ij(l)
-            m_ijl_r = calculate_m_ijl(A, B, P, observations[r], np.array(labels[r]), alpha, beta, c)
-            m_ij_r = np.sum(m_ijl_r, axis=2)
+            m_ij_r = calculate_m_ij(A, B, P, observations[r], np.array(labels[r]), alpha, beta, c)
             m_ij += m_ij_r
-
+        
         if update_B or update_P or update_pi:
             # Calculate m_i(l)
             m_il_r, m_ils_p_r, m_ils_m_r, gamma = calculate_m_il(alpha, alpha_p, alpha_m, beta)
@@ -283,7 +295,7 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
         # Update P according to equation B.9 given in [1]
         P = m_ic/(np.sum(m_ic, axis=1).reshape(P.shape[0], 1))
     if update_pi:
-            # Update pi
+        # Update pi
         pi = gamma_total/(np.sum(gamma_total))
         pi = pi.reshape((len(pi), 1))
     return A, B, P, pi, np.mean(ln_P)
