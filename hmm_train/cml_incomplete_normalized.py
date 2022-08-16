@@ -1,8 +1,9 @@
 """
 This code is written by Emil Vardar (student at KTH Royal Institute of Technology,
-Stockholm, Sweden). And the goal is to update transition, emission and label distribution 
-matrices for Hidden Markov Models (HMM) using conditional maximum likelihood approach (CML) 
-where the labels for the states are 'incomplete'. 
+Stockholm, Sweden). And the goal is to update transition, emission, label distribution and
+initial distribution matrices for Hidden Markov Models (HMM) using conditional maximum 
+likelihood approach (CML) where the labels for the states are 'incomplete'. Observe that 
+we use normalization in this approach in order to be able to use longer seqeunces. 
 
 It is open source. Use at your own risk.
 
@@ -207,7 +208,6 @@ def calculate_m_ij(A, B, P, observations, labels, alpha, beta, c):
             m_ij[i,j] = temp
     return m_ij
 
-
 @njit
 def calculate_m_ic(m_ils_p, m_ils_m, labels):
     """
@@ -250,6 +250,38 @@ def calculate_m_ia(m_il, B, observations):
             m_ia[i, a] = temp 
     return m_ia
 
+@njit
+def calc_ln_P_old_model(A, B, pi, O):
+    """
+    Calculates ln_P with the old model for comparision.
+    """
+    
+    T = len(O)             # Length of the observations
+    N = A.shape[0]         # Number of states
+    
+    alpha_2dot = np.zeros((N, T))
+    alpha_hat = np.zeros_like(alpha_2dot)
+    c = np.zeros(T)
+    
+    # Implement the initialization procedure according to equations 10 given in [1]
+    alpha_2dot[:,0] =  pi[:,0]*B[:, O[0]]       
+    c[0] = 1/np.sum(alpha_2dot[:,0])            
+    alpha_hat[:,0] = c[0] * alpha_2dot[:,0]   
+    
+    # Implement the induction procedure according to equations 11 given in [1]
+    for t in range(1, T):
+        for i in range(N):
+            summation = 0
+            for j in range(N):
+                summation += alpha_hat[j, t-1] * A[j, i]     
+            alpha_2dot[i, t] = summation * B[i, O[t]]        
+        c[t] = 1/(np.sum(alpha_2dot[:,t]))                   
+        alpha_hat[:, t] = c[t] * alpha_2dot[:,t] 
+
+    ln_P = -np.sum(np.log(c))     # Eq. 14 given in [1]
+    return ln_P
+
+
 def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P, update_pi):
     """
     Goes through the training set onces and updates A, B, and P matrices according to the
@@ -260,11 +292,13 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
     m_ic = np.zeros_like(P)
     gamma_total = np.zeros(A.shape[0])
     
-    ln_P = []
+    ln_P_1 = []
+    ln_P_2 = []
     for r in range(len(observations)):
         # Calculate the necessary forward and backward variables
         alpha, alpha_p, alpha_m, c = incomplete_label_forward(A, B, P, pi, observations[r], np.array(labels[r]))
-        ln_P.append(-np.sum(np.log(c)))
+        ln_P_1.append(-np.sum(np.log(c)))
+        ln_P_2.append(calc_ln_P_old_model(A, B, pi, observations[r]))
         beta = incomplete_label_backward(A, B, P, observations[r], np.array(labels[r]), c)
         
         if update_A:
@@ -298,15 +332,17 @@ def update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update
         # Update pi
         pi = gamma_total/(np.sum(gamma_total))
         pi = pi.reshape((len(pi), 1))
-    return A, B, P, pi, np.mean(ln_P)
+    return A, B, P, pi, np.mean(ln_P_1), np.mean(ln_P_2)
 
 def fit(A, B, P, pi, observations, labels, max_epoch, update_A=True, update_B=True, update_P=True, update_pi=True):
     """
     Goes through the training set max_epoch times and updates the A, B, and P matrices. Retruns the 
     updated matrices. 
     """
-    ln_P_list = []
+    ln_P_1_list = []
+    ln_P_2_list = []
     for epoch in range(max_epoch):
-        A, B, P, pi, prob_1_epoch = update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P, update_pi)                                                    
-        ln_P_list.append(prob_1_epoch)
-    return A, B, P, pi, ln_P_list
+        A, B, P, pi, prob_1_epoch, prob_2_epoch = update_1_epoch(A, B, P, pi, observations, labels, update_A, update_B, update_P, update_pi)                                                    
+        ln_P_1_list.append(prob_1_epoch)
+        ln_P_2_list.append(prob_2_epoch)
+    return A, B, P, pi, ln_P_1_list, ln_P_2_list
