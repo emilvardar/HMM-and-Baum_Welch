@@ -173,7 +173,10 @@ def calculate_m_il(alpha, alpha_p, alpha_m, beta):
 
 @njit
 def calculate_m_ij(A, B, P, observations, labels, alpha, beta, c):
-    """Calculates m_ij."""  
+    """
+    Calculates m_ij according to equation 18 in the following link:
+    http://www.cs.cmu.edu/~roni/11661/2017_fall_assignments/shen_tutorial.pdf
+    """  
 
     N = alpha.shape[0]    # Number of states
     L = alpha.shape[1]    # Number of observations
